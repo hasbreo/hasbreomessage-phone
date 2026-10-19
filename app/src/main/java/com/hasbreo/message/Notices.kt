@@ -29,9 +29,10 @@ object Notices{
   val previews=Preferences.get(context).optBoolean("previews");val text=if(previews)data.optString("body","New encrypted message")else"New encrypted message"
   val n=NotificationCompat.Builder(context,"messages").setSmallIcon(R.drawable.ic_notification).setContentTitle(data.optString("title","Hasbreo Message")).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(open(context,room)).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(if(previews)NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_SECRET).setGroup("hasbreo.messages").setOnlyAlertOnce(true)
   if(room.isNotBlank()){
-   val reply=Intent(context,MessageActionReceiver::class.java).setAction("reply").putExtra("roomId",room)
+   val account=Vault(context).get("session")?.let{JSONObject(it).optString("userId")}
+   val reply=Intent(context,MessageActionReceiver::class.java).setAction("reply").putExtra("roomId",room).putExtra("account",account)
    n.addAction(NotificationCompat.Action.Builder(0,"Reply",PendingIntent.getBroadcast(context,room.hashCode(),reply,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)).addRemoteInput(RemoteInput.Builder("text").setLabel("Your reply").build()).setAllowGeneratedReplies(true).build())
-   n.addAction(0,"Mark read",PendingIntent.getBroadcast(context,room.hashCode()+1,Intent(context,MessageActionReceiver::class.java).setAction("read").putExtra("roomId",room),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+   n.addAction(0,"Mark read",PendingIntent.getBroadcast(context,room.hashCode()+1,Intent(context,MessageActionReceiver::class.java).setAction("read").putExtra("roomId",room).putExtra("account",account),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
   }
   NotificationManagerCompat.from(context).notify(id.hashCode(),n.build())
  }
@@ -40,6 +41,7 @@ object Notices{
 }
 class MessageActionReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){
  if(intent.action=="disconnect"){Preferences.set(context,"connected",false);context.stopService(Intent(context,ChatService::class.java));return}
+ val expected=intent.getStringExtra("account");val current=Vault(context).get("session")?.let{JSONObject(it).optString("userId")};if(expected.isNullOrBlank()||expected!=current){Notices.status(context,"Account changed","Open the correct account to reply.");return}
  val room=intent.getStringExtra("roomId")?:return;val engine=ChatEngine.instance
  if(intent.action=="reply"){
   val text=RemoteInput.getResultsFromIntent(intent)?.getCharSequence("text")?.toString()?.trim()?:return;if(text.isBlank())return

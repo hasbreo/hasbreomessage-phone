@@ -15,7 +15,7 @@ This hybrid APK bundles the same React/Matrix Rust-crypto client as Hasbreo Chat
 - Android sharing, file/photo picker, camera capture and voice notes up to three minutes. Audio/video playback in the chat.
 - Native downloads decrypt incrementally into Downloads. Share-sheet files are read in bounded slices; multi-GB files are not buffered whole. Some non-seekable cloud providers require using Attach instead.
 - Notifications with optional previews, reply and mark-read actions. Notification replies have an encrypted, account-bound outbox and stable transaction IDs.
-- Optional Connected mode: an ongoing foreground remote-messaging service retains the Matrix/watch engine, with a native sync loop for private fallback alerts.
+- Connected mode (on by default, optional to disable): an ongoing foreground remote-messaging service retains the Matrix/watch engine, with a native sync loop for private fallback alerts.
 - Fingerprint/device-credential lock, haptics, starred chats and encrypted persistent drafts.
 - Explicit watch approval and revocation. The watch never receives the password, access token or Matrix message keys.
 
@@ -23,7 +23,7 @@ No voice/video calls, standalone watch login, FCM service, ads or analytics SDK 
 
 ## Install
 
-Android 11+, with a current Android System WebView. Download the signed APK from Releases and allow installation from your browser/file manager if Android asks. Sign in, allow notifications, and optionally enable Connected mode and unrestricted battery use in Settings. Pair the watch from Settings → Connect your watch.
+Android 11+, with a current Android System WebView. Download the signed APK from Releases and allow installation from your browser/file manager if Android asks. Sign in, allow notifications, and choose Connected mode / unrestricted battery use in Settings. Connected mode starts enabled so background chats and watch replies work without extra setup. Pair the watch from Settings → Connect your watch.
 
 Existing browser users must back up the original device's keys through automatic recovery before a new phone can restore them. Administrator password resets cannot decrypt old history without a signed-in device or optional backup. Change passwords inside Hasbreo to keep recovery linked.
 

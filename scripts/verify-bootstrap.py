@@ -15,7 +15,7 @@ verified=subprocess.check_output([str(tools/'apksigner'),'verify','--verbose','-
 certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([a-fA-F0-9]+)',verified).group(1).lower()
 assert certificate==m['certificateSha256']
 info=subprocess.check_output([str(tools/'aapt2'),'dump','badging',str(apk)],text=True)
-assert "name='com.hasbreo.message'" in info and f"versionName='{m['version']}'" in info and "sdkVersion:'30'" in info
+assert "name='com.hasbreo.message'" in info and f"versionName='{m['version']}'" in info and re.search(r"(?m)^(?:minSdkVersion|sdkVersion):'30'$",info)
 if m['platform']=='watch':assert "name='android.hardware.type.watch'" in info
 (root/'SHA256SUMS.txt').write_text(m['sha256']+'  '+m['filename']+'\n')
 print(json.dumps({'filename':m['filename'],'version':m['version'],'sourceCommit':m['sourceCommit'],'certificateSha256':certificate}))

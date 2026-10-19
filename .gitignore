@@ -6,10 +6,15 @@
 *.p12
 *.pem
 secrets/
-web/node_modules/
+web/node_modules
 web/dist/
 *.log
 .DS_Store
 
 /.kotlin/
 *.hprof
+
+__pycache__/
+*.pyc
+/*.apk
+/SHA256SUMS.txt

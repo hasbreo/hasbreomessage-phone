@@ -64,12 +64,12 @@ class MainActivity:FragmentActivity(){
   ViewCompat.setOnApplyWindowInsetsListener(container){v,insets->val bars=insets.getInsets(WindowInsetsCompat.Type.systemBars());val ime=insets.getInsets(WindowInsetsCompat.Type.ime());v.setPadding(bars.left,bars.top,bars.right,maxOf(bars.bottom,ime.bottom));insets}
   try{engine=ChatEngine.obtain(this);engine.attach(this,container)}catch(_:Exception){container.addView(TextView(this).apply{text="Update Android System WebView, then reopen Hasbreo Message.";setTextColor(Color.WHITE);setPadding(32,64,32,32)});return}
   onBackPressedDispatcher.addCallback(this,object:OnBackPressedCallback(true){override fun handleOnBackPressed(){engine.web.evaluateJavascript("(()=>{const close=document.querySelector('[aria-label=\"Close\"]');if(close){close.click();return true;}const back=document.querySelector('.messenger.show-chat [aria-label=\"Back to conversations\"]');if(back){back.click();return true;}return false;})()",{handled->if(handled!="true")moveTaskToBack(true)})}})
-  acceptIntent(intent);if(Preferences.get(this).optBoolean("connected"))try{ChatService.start(this)}catch(_:Exception){}
+  acceptIntent(intent);if(Preferences.get(this).optBoolean("connected")&&Vault(this).get("session")!=null)try{ChatService.start(this)}catch(_:Exception){}
   // Expire only app-owned capture files, never shared user documents.
   File(cacheDir,"shared").listFiles()?.filter{System.currentTimeMillis()-it.lastModified()>86400000}?.forEach{it.delete()}
  }
  override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);if(::engine.isInitialized)acceptIntent(intent)}
- override fun onResume(){super.onResume();if(!::engine.isInitialized)return;engine.attach(this,container);if(!unlocked||System.currentTimeMillis()-leftAt>30000)authenticate();else engine.visible=true;PendingReplies.flush(this)}
+ override fun onResume(){super.onResume();if(!::engine.isInitialized)return;engine.attach(this,container);if(!unlocked||System.currentTimeMillis()-leftAt>30000)authenticate();else engine.visible=true;PendingReplies.flush(this);if(Preferences.get(this).optBoolean("connected")&&Vault(this).get("session")!=null)try{ChatService.start(this)}catch(_:Exception){}}
  override fun onPause(){super.onPause();if(::engine.isInitialized){engine.visible=false;engine.event("hasbreo:visibility",JSONObject().put("visible",false))};leftAt=System.currentTimeMillis()}
  override fun onStop(){super.onStop();if(recorder!=null)stopVoice(false);if(::engine.isInitialized)engine.detach(this)}
  override fun onDestroy(){chooser?.onReceiveValue(null);chooser=null;if(::engine.isInitialized)engine.detach(this);super.onDestroy()}

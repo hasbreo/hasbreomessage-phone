@@ -99,6 +99,7 @@ class ChatEngine private constructor(private val app:Context){
     val old=Vault(app).get("session")?.let{JSONObject(it).optString("userId")}
     if(old!=null&&old!=data.getString("userId")){Notices.clearMessages(app);Vault(app).put("approvedWatches",null);Vault(app).put("policy",null);WearBridge.clear(app)}
     Vault(app).put("session",data.toString());ready=false
+    if(Vault(app).get("askedNotifications")!="yes"&&activity!=null)try{activity?.requestNotifications();Vault(app).put("askedNotifications","yes")}catch(_:Exception){}
     if(Preferences.get(app).optBoolean("connected"))try{ChatService.start(app)}catch(_:Exception){}
     ok()
    }
