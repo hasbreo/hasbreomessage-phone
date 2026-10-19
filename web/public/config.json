@@ -1,0 +1,6 @@
+{
+  "defaultHomeserver": "https://message.hasbreo.com",
+  "registrationTokenRequired": true,
+  "appName": "Hasbreo Chat",
+  "accountStorageBytes": 25000000000
+}

@@ -1,0 +1,23 @@
+{
+  "name": "hasbreo-message-phone-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "test:integration": "node tests/integration.mjs",
+    "test:ui": "node tests/ui.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "lucide-react": "^0.468.0",
+    "matrix-js-sdk": "44.0.0",
+    "matrix-encrypt-attachment": "^1.0.3"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "jsdom": "^27.0.0"
+  }
+}
