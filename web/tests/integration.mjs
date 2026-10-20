@@ -9,7 +9,6 @@ import http from 'node:http';
 import {FILE_KEY,fileRequest,decryptedChunks,uploadFile} from '../src/files.js';
 import {createHmac,randomBytes} from 'node:crypto';
 import {Messenger,sdk} from '../src/matrix.js';
-import {sendNativeText} from '../src/native-send.js';
 import {visibleMessages} from '../src/core.js';
 import {logger} from 'matrix-js-sdk/lib/logger.js';
 logger.setLevel('error');
@@ -22,7 +21,7 @@ p=pathlib.Path(sys.argv[2]);d=yaml.safe_load(pathlib.Path(sys.argv[1]).read_text
 if(prepared.status!==0)throw new Error(prepared.stderr);
 const server=spawn(python,['-m','synapse.app.homeserver','--config-path',config],{stdio:['ignore','ignore','pipe']});
 let stderr='';server.stderr.on('data',v=>{stderr+=v.toString();});
-const files=spawn(python,[new URL('./fixtures/files.py',import.meta.url).pathname],{env:{...process.env,CHAT_STORAGE_ROOT:join(directory,'files'),CHAT_SYNAPSE_URL:'http://127.0.0.1:18008',CHAT_DOMAIN:'localhost:18008',LEGACY_SQLITE_PATH:join(directory,'test.db'),CHAT_BIND:'127.0.0.1',CHAT_PORT:'18010',CHAT_DISK_HEADROOM_BYTES:'0'},stdio:['ignore','ignore','pipe']});
+const files=spawn(python,['server/files.py'],{env:{...process.env,CHAT_STORAGE_ROOT:join(directory,'files'),CHAT_SYNAPSE_URL:'http://127.0.0.1:18008',CHAT_DOMAIN:'localhost:18008',LEGACY_SQLITE_PATH:join(directory,'test.db'),CHAT_BIND:'127.0.0.1',CHAT_PORT:'18010',CHAT_DISK_HEADROOM_BYTES:'0'},stdio:['ignore','ignore','pipe']});
 files.stderr.on('data',v=>{stderr+=v.toString();});
 const proxy=http.createServer((incoming,outgoing)=>{
  const upstream=http.request({hostname:'127.0.0.1',port:incoming.url.startsWith('/hasbreo/')?18010:18008,path:incoming.url,method:incoming.method,headers:incoming.headers},response=>{outgoing.writeHead(response.statusCode,response.headers);response.pipe(outgoing);});
@@ -53,13 +52,13 @@ try{
   await wait(()=>alice.ready&&bob.ready&&cara.ready,'initial sync');report('three real accounts registered with 8-character alphanumeric passwords');
   for(const s of [alice,bob,cara])assert.equal(s.recovery.state,'ready',s.recovery.error);report('automatic secret storage, cross-signing and encrypted key backups');
   const results=await alice.searchPeople(`bob_${suffix}`);assert.ok(results.some(p=>p.user_id===bob.session.userId));report('exact username search');
+  const people=await alice.people();assert(people.some(p=>p.user_id===cara.session.userId));assert(!people.some(p=>p.user_id===alice.session.userId));assert(people.find(p=>p.user_id===bob.session.userId).display_name==='Bob Test');
+  await alice.setNickname(bob.session.userId,'My Bob');assert.equal(alice.personName(bob.session.userId,'Bob Test'),'My Bob');assert.equal((await bob.client.getProfileInfo(bob.session.userId)).displayname,'Bob Test');report('complete authenticated user catalogue and private nickname without changing profile');
   const id=await alice.createChat([bob.session.userId]);
-  const bobRoom=await wait(()=>bob.client.getRoom(id)?.getMyMembership()==='invite'&&bob.client.getRoom(id),'direct invitation');
-  await bob.join(bobRoom);await wait(()=>alice.client.getRoom(id)?.getMember(bob.session.userId)?.membership==='join','membership sync');
+  const bobRoom=await wait(()=>bob.client.getRoom(id)?.getMyMembership()==='join'&&bob.client.getRoom(id),'automatic direct membership');await wait(()=>alice.client.getRoom(id)?.getMember(bob.session.userId)?.membership==='join','membership sync');
   const sentAt=Date.now();await alice.send(id,'Encrypted hello from Alice');
-  const received=await wait(()=>bob.client.getRoom(id)?.getLiveTimeline().getEvents().find(e=>e.getContent().body==='Encrypted hello from Alice'),'encrypted direct message');assert.equal(received.getSender(),alice.session.userId);report('direct invitation, acceptance and encrypted message decryption');
+  const received=await wait(()=>bob.client.getRoom(id)?.getLiveTimeline().getEvents().find(e=>e.getContent().body==='Encrypted hello from Alice'),'encrypted direct message');assert.equal(received.getSender(),alice.session.userId);report('direct messaging without acceptance and encrypted message decryption');
   const notice=await wait(()=>bob.notices.find(n=>n.id===received.getId()),'notification callback');assert.ok(notice.ts-sentAt<5000,'Notification was delayed more than 5 seconds');report(`live decrypted-message notification dispatched in ${notice.ts-sentAt} ms`);
-  const tx='watch-idempotent-'+suffix;const watchRequest={requestId:tx,roomId:id,text:'One watch reply only'};const once=await sendNativeText(alice,watchRequest);const twice=await sendNativeText(alice,watchRequest);assert.equal(once.event_id,twice.event_id);report('retrying the same watch transaction cannot duplicate a message');
   const rawMessages=await request(`/_matrix/client/v3/rooms/${encodeURIComponent(id)}/messages?dir=b&limit=30`,null,alice.session.accessToken,'GET');
   assert.ok(rawMessages.chunk.some(e=>e.type==='m.room.encrypted'));assert.ok(!JSON.stringify(rawMessages).includes('Encrypted hello from Alice'));report('server stores ciphertext, not message plaintext');
   await bob.send(id,'A reply from Bob',received);await wait(()=>alice.client.getRoom(id).getLiveTimeline().getEvents().some(e=>e.getContent().body==='A reply from Bob'),'reply');report('encrypted reply delivered');
@@ -105,7 +104,7 @@ try{
   await alice.publishPresence('unavailable');await wait(async()=>{await bob.refreshPresence(alice.session.userId);return bob.presenceInfo(alice.session.userId).state==='unavailable';},'away presence');report('online and away presence is reported by the real server');
   await bob.read(bob.client.getRoom(id));await wait(()=>alice.client.getRoom(id).hasUserReadEvent(bob.session.userId,photo.getId()),'read receipt');report('read receipts');
   const group=await alice.createChat([bob.session.userId,cara.session.userId],'Integration group');
-  for(const s of [bob,cara]){const r=await wait(()=>s.client.getRoom(group)?.getMyMembership()==='invite'&&s.client.getRoom(group),'group invite');await s.join(r);}
+  for(const s of [bob,cara])await wait(()=>s.client.getRoom(group)?.getMyMembership()==='join','automatic group membership');
   await wait(()=>alice.client.getRoom(group)?.getJoinedMemberCount()===3,'group joins');await cara.send(group,'Hello group');await wait(()=>bob.client.getRoom(group)?.getLiveTimeline().getEvents().some(e=>e.getContent().body==='Hello group'),'group delivery');report('three-person encrypted group chat');
   await bob.mute(bob.client.getRoom(id),true);assert.equal(await bob.muted(bob.client.getRoom(id)),true);await bob.mute(bob.client.getRoom(id),false);report('mute and unmute');
   await bob.ignore(cara.session.userId);await wait(()=>bob.client.getIgnoredUsers().includes(cara.session.userId),'block');await bob.unignore(cara.session.userId);report('block and unblock');
@@ -121,7 +120,7 @@ try{
   const badLogin=client();await assert.rejects(()=>badLogin.authenticate({server:base,username:`bob_${suffix}`,password}));report('old login password rejected');
   const currentSecrets=await bob.client.getAccountDataFromServer('m.megolm_backup.v1');assert.deepEqual(Object.keys(currentSecrets.encrypted),[activeKey]);report('old recovery wrappers removed after successful password change');
   const legacy=client(false);await legacy.authenticate({server:base,username:`legacy_${suffix}`,password,register:true,token:invite});await wait(()=>legacy.ready,'legacy sync');
-  const legacyRoomId=await legacy.createChat([alice.session.userId]);const invitation=await wait(()=>alice.client.getRoom(legacyRoomId)?.getMyMembership()==='invite'&&alice.client.getRoom(legacyRoomId),'legacy invitation');await alice.join(invitation);
+  const legacyRoomId=await legacy.createChat([alice.session.userId]);await wait(()=>alice.client.getRoom(legacyRoomId)?.getMyMembership()==='join','legacy automatic membership');
   await wait(()=>legacy.client.getRoom(legacyRoomId)?.getMember(alice.session.userId)?.membership==='join','legacy membership');await legacy.send(legacyRoomId,'History created before automatic recovery');
   await legacy.recovery.unlock(password);await legacy.recovery.ensureUploaded();report('existing account and local history migrate without sign-out or file backup');
   const finish=legacy.recovery.finishRotation.bind(legacy.recovery);legacy.recovery.finishRotation=async()=>{throw new Error('Simulated connection interruption after password change');};
@@ -133,5 +132,34 @@ try{
   const upload=unchanged.recovery.ensureUploaded.bind(unchanged.recovery);unchanged.recovery.ensureUploaded=async()=>{throw new Error('Simulated offline backup');};await assert.rejects(()=>unchanged.logout());assert.equal(unchanged.stopped,false);unchanged.recovery.ensureUploaded=upload;report('failed backup does not silently sign out or discard local keys');
   const backupVersion=await unchanged.client.getCrypto().getActiveSessionBackupVersion();await request('/_synapse/admin/v1/reset_password/'+encodeURIComponent(unchanged.session.userId),{new_password:'reset123',logout_devices:false},admin.access_token);
   const reset=client();await reset.authenticate({server:base,username:`legacy_${suffix}`,password:'reset123'});assert.equal(reset.recovery.state,'needs-password');assert.equal((await reset.client.getCrypto().getKeyBackupInfo()).version,backupVersion);report('administrator reset never silently replaces inaccessible encrypted history');
+  const wave=Buffer.alloc(44+1600);wave.write('RIFF',0);wave.writeUInt32LE(wave.length-8,4);wave.write('WAVEfmt ',8);wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(1,22);wave.writeUInt32LE(8000,24);wave.writeUInt32LE(16000,28);wave.writeUInt16LE(2,32);wave.writeUInt16LE(16,34);wave.write('data',36);wave.writeUInt32LE(1600,40);
+  await alice.addSound(new File([wave],'ping.wav',{type:'audio/wav'}),'My ping');const sound=await wait(async()=>{const list=await alice.sounds();return list.find(s=>s.name==='My ping')},'encrypted soundboard entry');assert(!alice.rooms().some(r=>r.roomId===sound.roomId));await assert.rejects(()=>bob.client.joinRoom(sound.roomId));report('soundboard library is encrypted, hidden from chats and private to its owner');
+  await alice.sendSound(id,sound,'test-sound-transaction');await alice.sendSound(id,sound,'test-sound-transaction');const soundMessage=await wait(()=>bob.client.getRoom(id)?.getLiveTimeline().getEvents().find(e=>e.getContent()['com.hasbreo.sound']&&e.getContent().body==='My ping'),'sound chat message');assert.equal(soundMessage.getContent().msgtype,'m.audio');await pause(200);assert.equal(bob.client.getRoom(id).getLiveTimeline().getEvents().filter(e=>e.getContent()['com.hasbreo.sound']).length,1);report('sound sends as playable encrypted audio and repeated transactions do not duplicate it');
+  await bob.checkFiles([sound.content[FILE_KEY].id],true);assert.equal(bob.fileAvailable(sound.content[FILE_KEY].id),true);await alice.deleteFile(sound.content[FILE_KEY].id);await bob.checkFiles([sound.content[FILE_KEY].id],true);assert.equal(bob.fileAvailable(sound.content[FILE_KEY].id),false);assert.equal(alice.fileAvailable(sound.content[FILE_KEY].id),false);await assert.rejects(()=>alice.sendSound(id,sound),/deleted/);report('deleted file availability propagates to recipients and deleted sounds cannot be resent');
+  await alice.setQuickReplies(['Hello there',' 👍 ']);assert.deepEqual(alice.quickReplies(),['Hello there','👍']);report('quick-reply presets persist as account preferences');
+  const seed=spawnSync(python,['-c',`import sqlite3,sys,time
+c=sqlite3.connect(sys.argv[1]);now=int(time.time());c.executemany('INSERT INTO uploads VALUES(?,?,?,?,?,?,?)',[(format(i+100000,'032x'),sys.argv[2],i+1,1,'ready',now+i,now+i) for i in range(205)]);c.commit()`,join(directory,'files','files.sqlite3'),alice.session.userId],{encoding:'utf8'});assert.equal(seed.status,0,seed.stderr);
+  const sorted=await alice.storedFiles('size','desc');assert(sorted.files.length>=205);assert(sorted.files.every((f,i)=>!i||sorted.files[i-1].size>=f.size));const dated=await alice.storedFiles('date','asc');assert(dated.files.every((f,i)=>!i||dated.files[i-1].created<=f.created));await assert.rejects(()=>alice.storedFiles('bad-sort','desc'));report('storage sorting includes files beyond the first 200 and rejects invalid ordering');
+  const pushKey=await fileRequest(alice.session,'/push/key');assert.equal(Buffer.from(pushKey.publicKey,'base64url').length,65);
+  const subscription={endpoint:'https://fcm.googleapis.com/hasbreo-test-'+suffix,keys:{p256dh:'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',auth:'BTBZMqHH6r4Tts7J_aSIgg'}};
+  await assert.rejects(()=>fileRequest(alice.session,'/push/subscription',{method:'POST',body:{deviceId:bob.session.deviceId,subscription}}),/current signed-in/);
+  await assert.rejects(()=>fileRequest(alice.session,'/push/subscription',{method:'POST',body:{deviceId:alice.session.deviceId,subscription:{...subscription,endpoint:'https://127.0.0.1/private'}}}),/Unsupported browser/);
+  await fileRequest(alice.session,'/push/subscription',{method:'POST',body:{deviceId:alice.session.deviceId,subscription}});
+  let pushers=await request('/_matrix/client/v3/pushers',null,alice.session.accessToken,'GET');assert(pushers.pushers.some(p=>p.app_id==='com.hasbreo.message.web'&&p.data.format==='event_id_only'));
+  await fileRequest(alice.session,'/push/subscription',{method:'DELETE',body:{deviceId:alice.session.deviceId}});pushers=await request('/_matrix/client/v3/pushers',null,alice.session.accessToken,'GET');assert(!pushers.pushers.some(p=>p.app_id==='com.hasbreo.message.web'));report('authenticated browser push registration/revocation, device ownership and SSRF endpoint protection');
+  await assert.rejects(()=>bob.adminUser(cara.session.userId,'edit',{displayname:'Not allowed',admin:true}),/administrator/);
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'edit',displayname:'Cara Edited',admin:true}});
+  let edited=await request('/_synapse/admin/v2/users/'+encodeURIComponent(cara.session.userId),null,admin.access_token,'GET');assert.equal(edited.displayname,'Cara Edited');assert.equal(edited.admin,true);
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'edit',displayname:'Cara Edited',admin:false}});
+  await assert.rejects(()=>fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:admin.user_id,action:'edit',displayname:'Admin',admin:false}}),/own administrator/);report('admin-only account editing and roles; ordinary users denied and self-demotion prevented');
+  const invitation=await fileRequest(adminSession,'/admin/invite',{method:'POST',body:{uses:1,days:1}});assert((await fileRequest(adminSession,'/admin/invites')).registration_tokens.some(i=>i.token===invitation.token));
+  await fileRequest(adminSession,'/admin/invite/revoke',{method:'POST',body:{token:invitation.token}});assert(!(await fileRequest(adminSession,'/admin/invites')).registration_tokens.some(i=>i.token===invitation.token));report('registration invitation listing and revocation leave existing users intact');
+  await assert.rejects(()=>fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'deactivate',confirm:'wrong'}}),/confirm/);
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'deactivate',confirm:cara.session.userId}});
+  assert(!(await alice.people()).some(p=>p.user_id===cara.session.userId));await assert.rejects(()=>fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:admin.user_id,action:'deactivate',confirm:admin.user_id}}),/own administrator/);report('confirmed account deletion excludes people directory and prevents administrator lockout');
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'reactivate'}});
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'password',password:'newpass123'}});
+  const resumed=await request('/_matrix/client/v3/login',{type:'m.login.password',identifier:{type:'m.id.user',user:cara.session.userId},password:'newpass123'});assert(resumed.access_token);
+  await fileRequest(adminSession,'/admin/user',{method:'POST',body:{userId:cara.session.userId,action:'logout'}});assert.equal((await fetch(base+'/_matrix/client/v3/account/whoami',{headers:{Authorization:'Bearer '+resumed.access_token}})).status,401);report('account reactivation, password reset and administrator session revocation');
   await Promise.all(clients.filter(s=>s.client).map(s=>s.logout().catch(()=>s.stop())));console.log(`\n${checks} integration checks passed against real Synapse.`);
 } catch(e){console.error(e);console.error(stderr.slice(-1400));process.exitCode=1;}finally{for(const c of clients)c.stop();server.kill('SIGTERM');files.kill('SIGTERM');proxy.close();setTimeout(()=>{server.kill('SIGKILL');files.kill('SIGKILL');proxy.closeAllConnections();process.exit(process.exitCode||0);},1500).unref();}

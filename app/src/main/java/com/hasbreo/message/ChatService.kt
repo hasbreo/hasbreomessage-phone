@@ -29,28 +29,11 @@ class ChatService:Service(){
  }
  override fun onBind(intent:Intent?):IBinder?=null
  override fun onDestroy(){instance=null;getSystemService(android.media.AudioManager::class.java).mode=android.media.AudioManager.MODE_NORMAL;running.set(false);executor.shutdownNow();super.onDestroy()}
+ // The Rust/JS crypto engine owns the only Matrix /sync loop for this device.
+ // A competing native sync acknowledges to-device keys without decrypting them.
  private fun poll(){while(running.get())try{
-  val v=Vault(this);val s=v.get("session")?.let{JSONObject(it)};if(s==null){Thread.sleep(3000);continue}
-  val base=s.getString("baseUrl");if(!base.startsWith("https://")){Thread.sleep(3000);continue}
-  val identity=s.getString("userId")+s.getString("deviceId");val cursorKey="sync:"+identity;val since=v.get(cursorKey)
-  val filter=JSONObject().put("room",JSONObject().put("timeline",JSONObject().put("limit",10).put("types",JSONArray(listOf("m.room.encrypted","m.room.message"))))).put("presence",JSONObject().put("not_types",JSONArray(listOf("*"))))
-  val address=base+"/_matrix/client/v3/sync?timeout=25000&set_presence="+(if(ChatEngine.instance?.visible==true)"online"else"unavailable")+"&filter="+URLEncoder.encode(filter.toString(),"UTF-8")+(since?.let{"&since="+URLEncoder.encode(it,"UTF-8")}?:"")
-  val c=URL(address).openConnection() as HttpURLConnection;c.connectTimeout=15000;c.readTimeout=35000;c.instanceFollowRedirects=false;c.setRequestProperty("Authorization","Bearer "+s.getString("accessToken"))
-  val data=try{if(c.responseCode==401){Notices.status(this,"Sign in to reconnect","Your Hasbreo session needs attention.");Thread.sleep(30000);continue};if(c.responseCode!=200){Thread.sleep(5000);continue};JSONObject(c.inputStream.bufferedReader().use{it.readText()})}finally{c.disconnect()}
-  if(Vault(this).get("session")?.let{JSONObject(it).optString("userId")+JSONObject(it).optString("deviceId")}!=identity)continue
-  val policy=v.get("policy")?.let{JSONObject(it)}
-  if(since!=null&&policy!=null){val muted=policy.optJSONArray("muted")?:JSONArray();val ignored=policy.optJSONArray("ignored")?:JSONArray();val titles=policy.optJSONObject("titles")?:JSONObject();val rooms=data.optJSONObject("rooms")?.optJSONObject("join")?:JSONObject()
-   for(roomId in rooms.keys()){
-    if((0 until muted.length()).any{muted.optString(it)==roomId})continue
-    val events=rooms.getJSONObject(roomId).optJSONObject("timeline")?.optJSONArray("events")?:continue
-    for(i in 0 until events.length()){val e=events.getJSONObject(i);val sender=e.optString("sender");if(sender==s.getString("userId")||(0 until ignored.length()).any{ignored.optString(it)==sender})continue
-     val content=e.optJSONObject("content")?:JSONObject();if(content.optJSONObject("m.relates_to")?.optString("rel_type")=="m.replace")continue
-     val note=JSONObject().put("owner",s.getString("userId")).put("eventId",e.optString("event_id")).put("roomId",roomId).put("title",titles.optString(roomId,"Hasbreo Message")).put("body","New encrypted message")
-     android.os.Handler(mainLooper).postDelayed({Notices.message(this,note)},2500)
-    }
-   }
-  };v.put(cursorKey,data.getString("next_batch"))
- }catch(_:InterruptedException){return}catch(_:Exception){try{Thread.sleep(5000)}catch(_:InterruptedException){return}}}
+  ChatEngine.instance?.event("hasbreo:wake",JSONObject());Thread.sleep(20000)
+ }catch(_:InterruptedException){return}}
  companion object{var instance:ChatService?=null
  fun media(context:Context,active:Boolean,video:Boolean){if(!active&&instance==null)return;val intent=Intent(context,ChatService::class.java).putExtra("callActive",active).putExtra("callVideo",video);ContextCompat.startForegroundService(context,intent)}
  fun start(context:Context){ContextCompat.startForegroundService(context,Intent(context,ChatService::class.java))}}

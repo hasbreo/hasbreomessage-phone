@@ -46,3 +46,15 @@ self.addEventListener('fetch',event=>{
     return new Response(stream,{headers:{'Content-Type':'application/octet-stream','Content-Length':String(m.size),'Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(safeName),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
   })());
 });
+
+// A running tab owns in-app sounds and visual attention. System notifications
+// are reserved for when no Message window exists in this browser profile.
+self.addEventListener('push',event=>{
+ event.waitUntil((async()=>{
+  let payload;try{payload=event.data.json()}catch{return}
+  if(typeof payload.roomId!=='string'||typeof payload.account!=='string')return;
+  const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+  if(windows.some(client=>new URL(client.url).origin===self.location.origin))return;
+  await self.registration.showNotification('Hasbreo Message',{body:'New encrypted activity. Open Message to read or answer.',icon:'/icon.svg',badge:'/icon.svg',tag:'hasbreo-background:'+payload.account+':'+payload.roomId,renotify:false,data:{roomId:payload.roomId}});
+ })());
+});

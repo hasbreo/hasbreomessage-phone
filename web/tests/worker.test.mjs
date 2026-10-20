@@ -19,3 +19,10 @@ test('download worker streams authenticated ciphertext into an exact attachment'
   assert.deepEqual(new Uint8Array(await output.arrayBuffer()),plain);assert.equal(count,1);
   events.fetch({request:new Request('https://chat.test/__hasbreo_download/'+id),respondWith:p=>response=p});assert.equal((await response).status,410);
 });
+
+test('background push suppresses system notifications whenever any Message window is open',async()=>{
+ const events={};let windows=[{url:'https://chat.test/'}],shown=0;
+ const self={addEventListener:(name,fn)=>events[name]=fn,location:{origin:'https://chat.test'},skipWaiting(){},registration:{async showNotification(){shown++}},clients:{claim(){},async matchAll(){return windows}}};
+ vm.runInNewContext(await readFile(new URL('../public/notification-worker.js',import.meta.url),'utf8'),{self,Map,URL,setTimeout,crypto,Uint8Array,DataView,TextEncoder,ReadableStream,Response,fetch,atob});
+ let pending;const push=()=>events.push({data:{json:()=>({roomId:'room',account:'alice'})},waitUntil:p=>pending=p});push();await pending;assert.equal(shown,0);windows=[];push();await pending;assert.equal(shown,1);
+});

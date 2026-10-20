@@ -1,3 +1,5 @@
+import {disableBrowserPush} from './browser-push.js';
+import {isChatMessage} from './call-history.js';
 import {installCommunity,BOARD_TYPE} from './community.js';
 import {CallManager} from './calls.js';
 import * as sdk from "matrix-js-sdk";
@@ -229,7 +231,7 @@ export class Messenger {
           if (this.liveMessages.size > 300)
             this.liveMessages.delete(this.liveMessages.values().next().value);
           if (
-            e.getType() === "m.room.message" &&
+            e.getType() === "m.room.message" && !e.getContent()['com.hasbreo.call'] &&
             e.getContent()["m.relates_to"]?.rel_type !== "m.replace"
           )
             this.onMessage(e, room);
@@ -242,7 +244,7 @@ export class Messenger {
           this.ready &&
           this.liveMessages.has(e.getId()) &&
           e.getSender() !== session.userId &&
-          e.getContent().msgtype &&
+          e.getType()==='m.room.message' && e.getContent().msgtype && !e.getContent()['com.hasbreo.call'] &&
           e.getContent()["m.relates_to"]?.rel_type !== "m.replace"
         )
           this.onMessage(e, this.client.getRoom(e.getRoomId()));
@@ -268,10 +270,9 @@ export class Messenger {
       });
       if (hasPassword && this.options.automaticRecovery !== false) {
         await this.waitReady();
-        try {
-          await this.recovery.initialize(password);
-        } catch {
-          /* Login succeeded. Surface recovery separately, without discarding this device's keys. */
+        for(let attempt=0;attempt<3;attempt++){
+          try{await this.recovery.initialize(password);break}
+          catch(error){if(/different recovery password|Nothing has been reset/.test(error.message)||attempt===2)break;await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)))}
         }
       }
     } catch (e) {
@@ -670,21 +671,30 @@ export class Messenger {
   async typing(roomId, typing) {
     await this.client.sendTyping(roomId, typing, 10000);
   }
-  async read(room) {
-    const e = this.latest(room);
+  async read(room,force=false) {
+    if(this.manualUnread?.has(room.roomId)&&!force)return;this.manualUnread?.delete(room.roomId);
+    const e = room.getLiveTimeline().getEvents().at(-1);
     if (
       e &&
-      e.getSender() !== this.session.userId &&
       this.readMarks.get(room.roomId) !== e.getId()
     ) {
       this.readMarks.set(room.roomId, e.getId());
       try {
-        await this.client.sendReadReceipt(e);
+        await this.client.sendReadReceipt(e);await this.client.setRoomAccountData(room.roomId,'m.marked_unread',{unread:false});
       } catch (error) {
         this.readMarks.delete(room.roomId);
         throw error;
       }
     }
+  }
+  async markUnread(room){this.manualUnread ||= new Set();this.manualUnread.add(room.roomId);await this.client.setRoomAccountData(room.roomId,'m.marked_unread',{unread:true});this.emit()}
+  async ensureRecentHistory(room){
+    this.historyLoads ||= new Map();if(this.historyLoads.has(room.roomId))return this.historyLoads.get(room.roomId);
+    const pending=(async()=>{let previous='';for(let page=0;page<25;page++){
+      const events=room.getLiveTimeline().getEvents();await Promise.all(events.filter(e=>e.getType()==='m.room.encrypted').map(e=>this.client.decryptEventIfNeeded(e).catch(()=>{})));
+      if(events.filter(isChatMessage).length>=30||!room.oldState.paginationToken)break;
+      const token=room.oldState.paginationToken;if(token===previous)break;previous=token;await this.client.scrollback(room,80);this.emit();
+    }})();this.historyLoads.set(room.roomId,pending);try{await pending}finally{this.historyLoads.delete(room.roomId)}
   }
   async older(room) {
     return this.client.scrollback(room, 40);
@@ -745,6 +755,7 @@ export class Messenger {
   }
   async logout() {
     await this.recovery?.ensureUploaded();
+    await disableBrowserPush(this);
     await this.client?.logout();
     this.stop();
     localStorage.removeItem(SESSION_KEY);

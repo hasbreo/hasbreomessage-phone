@@ -1,3 +1,4 @@
+import {callHistory} from './call-history.js';
 export function serverUrl(input) {
   let value = input.trim();
   if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
@@ -59,7 +60,7 @@ export function visibleMessages(events) {
       if (target && target.getSender() === e.getSender() && !e.isRedacted?.()) edits.set(target.getId(), c['m.new_content']);
     }
   }
-  return events.filter(e => ['m.room.message', 'm.room.encrypted'].includes(e.getType()) && e.getContent()['m.relates_to']?.rel_type !== 'm.replace').map(e => ({event:e,content:edits.get(e.getId()) || e.getContent(),edited:edits.has(e.getId())}));
+  return [...events,...callHistory(events)].sort((a,b)=>a.getTs()-b.getTs()).filter(e => ['m.room.message', 'm.room.encrypted'].includes(e.getType()) && e.getContent()['m.relates_to']?.rel_type !== 'm.replace').map(e => ({event:e,content:edits.get(e.getId()) || e.getContent(),edited:edits.has(e.getId())}));
 }
 const b64 = bytes => {const data=new Uint8Array(bytes);let text='';for(let i=0;i<data.length;i+=16384)text+=String.fromCharCode(...data.subarray(i,i+16384));return btoa(text);};
 const unb64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));

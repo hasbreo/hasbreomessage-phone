@@ -1,3 +1,7 @@
+import {enableBrowserPush} from './browser-push.js';
+import {AdminUsers} from './admin-users.jsx';
+import {PreferencesPanel} from './preferences-ui.jsx';
+import {preferences,applyPreferences,unlockAudio,playTone} from './preferences.js';
 import {EmojiPanel,VoiceRecorder,CameraCapture,Soundboard,CallPanel,NicknameEditor} from "./features-ui.jsx";
 import {loadDrafts,saveDrafts} from "./drafts.js";
 import {notificationGate} from "./notifications.js";
@@ -474,6 +478,20 @@ function Attachment({content,service,onOpen}){
 }
 function QuickReplySettings({service,tell}){const [value,setValue]=useState(service.quickReplies().join('\n')),[error,setError]=useState('');return <details><summary>Edit quick replies</summary><label>One reply per line<textarea aria-label="Quick reply presets" rows={5} value={value} onChange={e=>setValue(e.target.value)}/></label><button className="secondary" onClick={async()=>{try{await service.setQuickReplies(value.split('\n'));tell('Quick replies saved.')}catch(e){setError(e.message)}}}>Save quick replies</button>{error&&<p className="error">{error}</p>}</details>}
 
+function ChatOptions({service,room,onClose=()=>{},onNickname,onDetails,onSounds,tell}){
+ const [muted,setMuted]=useState(false),[busy,setBusy]=useState(false);
+ useEffect(()=>{service?.muted(room).then(setMuted).catch(()=>{})},[room?.roomId]);if(!service||!room)return null;
+ const run=async fn=>{setBusy(true);try{await fn();onClose()}catch(error){tell(describeError(error))}finally{setBusy(false)}};
+ return <div className="chat-options" role="group" aria-label="Chat settings">
+ <button disabled={busy} onClick={()=>run(()=>service.read(room,true))}>Mark as read</button><button disabled={busy} onClick={()=>run(()=>service.markUnread(room))}>Mark as unread</button>
+ <button disabled={busy} onClick={()=>run(()=>service.toggleFavourite(room.roomId))}>{service.isFavourite(room.roomId)?'Unstar chat':'Star chat'}</button>
+ {onNickname&&service.isDirect(room)&&<button onClick={()=>{onNickname();onClose()}}>Private nickname</button>}
+ <button disabled={busy} onClick={()=>run(async()=>{await service.mute(room,!muted);setMuted(!muted)})}>{muted?'Unmute notifications':'Mute notifications'}</button>
+ {onDetails&&<button onClick={()=>{onDetails();onClose()}}>Conversation details</button>}{onSounds&&<button onClick={()=>{onSounds();onClose()}}>Soundboard</button>}
+ <button className="danger" disabled={busy} onClick={()=>{if(window.confirm('Remove this conversation from your list and leave it? Other people keep their messages.'))run(async()=>{await service.client.leave(room.roomId);await service.client.forget(room.roomId,true);service.emit()})}}>Delete conversation…</button>
+ </div>
+}
+
 function App() {
   const [config, setConfig] = useState(null),
     [service, setService] = useState(null),
@@ -503,7 +521,7 @@ function App() {
     [draftsLoaded, setDraftsLoaded] = useState(false),
     [shareVersion, setShareVersion] = useState(0),
     [nativeVisible, setNativeVisible] = useState(true),
-    [dropActive,setDropActive]=useState(false),[quickOpen,setQuickOpen]=useState(false);
+    [dropActive,setDropActive]=useState(false),[quickOpen,setQuickOpen]=useState(false),[people,setPeople]=useState([]),[chatMenu,setChatMenu]=useState(null),[attention,setAttention]=useState({});
   const bottom = useRef(),
     scroll = useRef(),
     input = useRef(),
@@ -531,6 +549,9 @@ function App() {
     localStorage.setItem("hasbreo.theme", theme);
     localStorage.setItem("hasbreo.theme.v2", theme);
   }, [theme]);
+  useEffect(()=>{applyPreferences();const unlock=()=>unlockAudio().catch(()=>{});window.addEventListener('pointerdown',unlock);window.addEventListener('keydown',unlock);return()=>{window.removeEventListener('pointerdown',unlock);window.removeEventListener('keydown',unlock)}},[]);
+  useEffect(()=>{if(!service?.ready)return;let live=true;service.people().then(p=>{if(live)setPeople(p)}).catch(()=>{});return()=>{live=false}},[service,service?.ready]);
+  useEffect(()=>{if(service?.ready&&!isNative()&&globalThis.Notification?.permission==='granted')enableBrowserPush(service).catch(()=>{})},[service,service?.ready]);
   const notify = async (e, room) => {
     try {
       if (isNative()) {
@@ -552,34 +573,11 @@ function App() {
         });
         return;
       }
-      if (
-        !room ||
-        !shouldNotify({
-          hidden: document.hidden,
-          focused: document.hasFocus(),
-          activeRoomId: activeRef.current,
-          roomId: room.roomId,
-        }) ||
-        notified.current.has(e.getId()) ||
-        !("Notification" in window) ||
-        Notification.permission !== "granted" ||
-        serviceRef.current?.client.getIgnoredUsers().includes(e.getSender())
-      )
-        return;
-      const s = serviceRef.current;
-      if (!s || (await s.muted(room))) return;
-      notified.current.add(e.getId());
-      if (notified.current.size > 500)
-        notified.current.delete(notified.current.values().next().value);
-      if(!notificationGate.allow(s.session.userId,room.roomId))return;
-      await showNotification(s.title(room), {
-        roomId: room.roomId,
-        tag: "hasbreo-chat:"+s.session.userId+":"+room.roomId,
-        onClick: () => {
-          window.focus();
-          openRoom(room.roomId);
-        },
-      });
+      const svc=serviceRef.current;
+      if(!room||!svc||notified.current.has(e.getId())||!shouldNotify({hidden:document.hidden,focused:document.hasFocus(),activeRoomId:activeRef.current,roomId:room.roomId})||svc.client.getIgnoredUsers().includes(e.getSender())||await svc.muted(room))return;
+      notified.current.add(e.getId());if(notified.current.size>500)notified.current.delete(notified.current.values().next().value);
+      setAttention(previous=>({...previous,[room.roomId]:e.getId()}));setTimeout(()=>setAttention(previous=>previous[room.roomId]===e.getId()?{...previous,[room.roomId]:null}:previous),4200);
+      if(notificationGate.allow(svc.session.userId,room.roomId))await playTone(preferences().messageTone);
     } catch (e) {
       tell(describeError(e));
     }
@@ -768,7 +766,7 @@ function App() {
       (filter !== "favourites" ||
         (!isDemo && service.isFavourite(roomId(r)))) &&
       (filter !== "groups" || !direct(r)) &&
-      (filter !== "unread" || (!isDemo && r.getUnreadNotificationCount() > 0)),
+      (filter !== "unread" || (!isDemo && (r.getUnreadNotificationCount() > 0||r.getAccountData?.('m.marked_unread')?.getContent()?.unread))),
   );
   const openRoom = (id) => {
     setActive(id);
@@ -777,13 +775,14 @@ function App() {
     setEdit(null);
     setMessageQuery("");
     setSearchMessages(false);
-    nearBottom.current = true;
+    nearBottom.current = true;setChatMenu(null);setAttention(previous=>({...previous,[id]:null}));
+    if(!demo){const target=serviceRef.current?.client.getRoom(id);if(target){serviceRef.current.manualUnread?.delete(id);}if(target)serviceRef.current.ensureRecentHistory(target).catch(e=>tell(describeError(e)));}
   };
   useEffect(() => {
     if (!room || isDemo || document.hidden || (isNative() && !nativeVisible))
       return;
     const read = () => {
-      if (nearBottom.current && !messageQuery)
+      if (nearBottom.current && !messageQuery && (isNative()||document.hasFocus()))
         service.read(room).catch(() => {});
     };
     read();
@@ -1028,7 +1027,7 @@ function App() {
           <Search size={17} />
           <input
             aria-label="Search conversations"
-            placeholder="Find a conversation"
+            placeholder="Find anyone or a conversation"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -1043,7 +1042,7 @@ function App() {
             ["all", "All"],
             ["unread", "Unread"],
             ["favourites", "Starred"],
-            ["groups", "Groups"],
+            ["groups", "Groups"], ["people", "People"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -1072,12 +1071,12 @@ function App() {
               <span className="tiny-dot" />
             </button>
           ))}
-          {chats.map((r) => {
+          {filter!=='people'&&chats.map((r) => {
             const latest = isDemo ? r.events.at(-1) : service.latest(r);
             const count = isDemo ? 0 : r.getUnreadNotificationCount();
             return (
+              <div key={roomId(r)+(attention[roomId(r)]||'')} className={'conversation-wrap '+(attention[roomId(r)]?'new-message-attention':'')}>
               <button
-                key={roomId(r)}
                 className={`conversation ${active === roomId(r) ? "selected" : ""}`}
                 onClick={() => openRoom(roomId(r))}
               >
@@ -1116,9 +1115,13 @@ function App() {
                   </span>
                 </span>
               </button>
+              {!isDemo&&<button className="conversation-options icon-button" aria-label={'Chat options for '+roomName(r)} onClick={()=>setChatMenu(chatMenu===roomId(r)?null:roomId(r))}><MoreHorizontal size={18}/></button>}
+              {chatMenu===roomId(r)&&<ChatOptions service={service} room={r} onClose={()=>setChatMenu(null)} onNickname={()=>setModal({type:'nickname',userId:members(r).find(m=>m.userId!==me)?.userId})} onDetails={()=>{openRoom(roomId(r));setModal({type:'details'})}} tell={tell}/>}
+              </div>
             );
           })}
-          {!chats.length && (
+          {!isDemo&&(filter==='people'||query.trim())&&<div className="people-directory">{people.filter(p=>!query.trim()||(service.personName(p.user_id,p.display_name)+' '+p.user_id).toLowerCase().includes(query.trim().toLowerCase())).map(p=><button className="conversation" key={p.user_id} onClick={()=>act(async()=>{const id=await service.createChat([p.user_id]);openRoom(id);setQuery('');setFilter('all')})}><Avatar name={service.personName(p.user_id,p.display_name)}/><span className="conversation-copy"><strong>{service.personName(p.user_id,p.display_name)}</strong><small>{userHandle(p.user_id)}</small></span></button>)}</div>}
+          {!chats.length&&filter!=='people'  && (
             <div className="empty-list">
               <MessageCircle size={28} />
               <strong>
@@ -1254,25 +1257,8 @@ function App() {
                 </span>
               </button>
               <div className="chat-header-actions">
-                {!isDemo&&direct(room)&&room.getMyMembership()==='join'&&<><IconButton label="Voice call" onClick={()=>act(()=>service.calls.start(room,false))}><Phone size={20}/></IconButton><IconButton label="Video call · up to 1080p" onClick={()=>act(()=>service.calls.start(room,true))}><Video size={20}/></IconButton><IconButton label="Private nickname" onClick={()=>setModal({type:'nickname',userId:members(room).find(m=>m.userId!==me)?.userId})}><Tag size={18}/></IconButton></>}
-                {!isDemo&&<IconButton label="Open soundboard" onClick={()=>setModal({type:'soundboard'})}><Volume2 size={20}/></IconButton>}
-                {!isDemo && (
-                  <IconButton
-                    label={
-                      service.isFavourite?.(active)
-                        ? "Unfavourite chat"
-                        : "Favourite chat"
-                    }
-                    onClick={() => act(() => service.toggleFavourite(active))}
-                  >
-                    <Star
-                      size={19}
-                      fill={
-                        service.isFavourite?.(active) ? "currentColor" : "none"
-                      }
-                    />
-                  </IconButton>
-                )}
+                {!isDemo&&direct(room)&&room.getMyMembership()==='join'&&<><IconButton label="Voice call" onClick={()=>act(()=>service.calls.start(room,false))}><Phone size={20}/></IconButton><IconButton label="Video call · up to 1080p" onClick={()=>act(()=>service.calls.start(room,true))}><Video size={20}/></IconButton></>}
+                <details className="conversation-header-menu" onClick={e=>{if(e.target.closest('button'))e.currentTarget.removeAttribute('open')}}><summary aria-label="Conversation menu"><MoreHorizontal size={21}/></summary><ChatOptions service={service} room={room} onClose={()=>{}} onNickname={()=>setModal({type:'nickname',userId:members(room).find(m=>m.userId!==me)?.userId})} onDetails={()=>setModal({type:'details'})} onSounds={()=>setModal({type:'soundboard'})} tell={tell}/></details>
                 <IconButton
                   label="Search messages"
                   onClick={() => {
@@ -1394,9 +1380,10 @@ function App() {
                       members(room).some(
                         (m) =>
                           m.userId !== me &&
-                          room.hasUserReadEvent(m.userId, e.getId()),
+                          !e.getId().startsWith('$hasbreo-call:')&&room.hasUserReadEvent(m.userId, e.getId()),
                       );
                     const status = e.getStatus?.();
+                    if(content['com.hasbreo.call'])return <div className={'call-history-entry '+content['com.hasbreo.call'].status} key={e.getId()}><Phone size={16}/><strong>{content.body}</strong><small>{mine?'You':name} · {time(e.getTs())}</small></div>;
                     return (
                       <React.Fragment key={e.getId()}>
                         {showDate && (
@@ -2218,6 +2205,7 @@ function SettingsPanel({
   onLogout,
   redraw,
 }) {
+  const [settingsTab,setSettingsTab]=useState('account');
   const [displayName, setName] = useState(name),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -2262,7 +2250,9 @@ function SettingsPanel({
       onClose={onClose}
       wide
     >
-      <div className="settings-profile">
+      <nav className="settings-tabs" aria-label="Settings sections">{[['account','Account'],['appearance','Appearance & calls'],['notifications','Notifications'],['chats','Chats & storage'],['security','Security']].map(([id,label])=><button key={id} className={settingsTab===id?'active':''} onClick={()=>setSettingsTab(id)}>{label}</button>)}</nav>
+      <div hidden={settingsTab!=='appearance'}><PreferencesPanel service={service}/></div>
+      <div hidden={settingsTab!=='account'}><div className="settings-profile">
         <Avatar name={name} size="large" />
         <div>
           <h3>{name}</h3>
@@ -2310,8 +2300,8 @@ function SettingsPanel({
           </div>
         </label>
       </form>
-      {!isDemo && <><StoragePanel service={service} tell={tell}/><section className="settings-section"><h3>Your shortcuts</h3><QuickReplySettings service={service} tell={tell}/><details><summary>Private nicknames</summary><NicknameEditor service={service} onClose={()=>{}} tell={tell}/></details></section></>}
-      {isNative() && <NativeSettings tell={tell} />}
+      </div><div hidden={settingsTab!=='chats'}>{!isDemo && <><StoragePanel service={service} tell={tell}/><section className="settings-section"><h3>Your shortcuts</h3><QuickReplySettings service={service} tell={tell}/><details><summary>Private nicknames</summary><NicknameEditor service={service} onClose={()=>{}} tell={tell}/></details></section></>}
+      </div><div hidden={settingsTab!=='notifications'}>{isNative() && <NativeSettings tell={tell} />}
       <section className="settings-section">
         <div className="section-title">
           <Bell size={18} />
@@ -2320,7 +2310,7 @@ function SettingsPanel({
         <p>
           {isNative()
             ? "Get Android notifications and reply without leaving what you’re doing. Enable Connected mode below for continuous background delivery and watch replies."
-            : "Get an alert while this browser tab is running."}
+            : "Open tabs use Hasbreo sounds and gentle visual alerts. Browser notifications are reserved for when no Message tab is open. Background delivery depends on your browser and operating-system settings."}
         </p>
         <button
           className="secondary"
@@ -2342,6 +2332,7 @@ function SettingsPanel({
                     ? "Notifications are blocked. Change this in your browser’s site settings."
                     : "Notification permission was not granted.",
               );
+              if(p==='granted'&&!isDemo){await enableBrowserPush(service);tell('Background alerts enabled. Open tabs use Hasbreo sounds instead.');}
               redraw();
             })
           }
@@ -2384,7 +2375,7 @@ function SettingsPanel({
           </button>
         )}
       </section>
-      <section className="settings-section">
+      </div><div hidden={settingsTab!=='security'}><section className="settings-section">
         <div className="section-title">
           <ShieldCheck size={18} />
           <h3>Your history follows your login</h3>
@@ -2634,10 +2625,10 @@ function SettingsPanel({
           </section>
         </>
       )}
-      <ErrorBox error={error} />
+      </div><ErrorBox error={error} />
       <footer className="settings-bottom">
         <span>
-          Hasbreo Message <b>1.0.0</b> · Powered by Matrix
+          Hasbreo Message <b>1.2.0</b> · Powered by Matrix
         </span>
         <button className="text-button danger" onClick={onLogout}>
           <LogOut size={16} /> {isDemo ? "Leave demo" : "Sign out"}
@@ -2666,6 +2657,7 @@ function Details({
     [muted, setMuted] = useState(false),
     [confirmLeave, setConfirmLeave] = useState(false),
     [removeMember, setRemoveMember] = useState(null);
+  const [nicknameOpen,setNicknameOpen]=useState(false);
   const canAdmin =
     !isDemo && room.currentState.maySendStateEvent("m.room.name", me);
   const run = async (fn, text) => {
@@ -2690,6 +2682,8 @@ function Details({
   }, []);
   return (
     <Modal title="A little about this chat" onClose={onClose}>
+      {!isDemo&&<ChatOptions service={service} room={room} onClose={()=>{}} onNickname={()=>setNicknameOpen(!nicknameOpen)} tell={tell}/>}
+      {nicknameOpen&&!isDemo&&<NicknameEditor service={service} initialId={members.find(m=>m.userId!==me)?.userId} onClose={()=>setNicknameOpen(false)} tell={tell}/>}
       <div className="details-hero">
         <Avatar name={name} size="large" group={members.length > 2} />
         <h2>{name}</h2>
@@ -3081,7 +3075,7 @@ function AdminPanel({ service, onClose, tell }) {
   return (
     <Modal
       title="Your server, your rules."
-      subtitle="Account storage and invitations, in one place."
+      subtitle="Accounts, access, storage and invitations, in one place."
       onClose={onClose}
       wide
     >
@@ -3114,6 +3108,7 @@ function AdminPanel({ service, onClose, tell }) {
               <span>Password characters</span>
             </div>
           </div>
+          <AdminUsers service={service} accounts={data.accounts.users} reload={load} tell={tell}/>
           <section className="settings-section">
             <h3>Account storage</h3>
             <p>
@@ -3300,7 +3295,7 @@ function NativeSettings({ tell }) {
           }
         >
           Background battery settings
-        </button>
+        </button><button className="secondary" onClick={()=>nativeRequest('connectionNotificationSettings').catch(e=>setError(e.message))}>Hide Connected mode notification…</button>
         <button
           className="text-button"
           onClick={() =>

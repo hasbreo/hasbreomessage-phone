@@ -41,6 +41,7 @@ if (isNative()) {
 export async function installNativeMessenger(service) {
   if (!isNative()) return () => {};
   await nativeRequest("session", service.session);
+  const wake=()=>{if(service.client?.getSyncState?.()==='ERROR')service.client.retryImmediately()};window.addEventListener('hasbreo:wake',wake);
   const policy = async () => {
     const titles = {},
       muted = [];
@@ -167,7 +168,7 @@ export async function installNativeMessenger(service) {
   window.addEventListener("hasbreo:request", listener);
   await nativeRequest("engineReady");
   return () => {
-    clearInterval(policyTimer);
+    clearInterval(policyTimer);window.removeEventListener('hasbreo:wake',wake);
     service.client.removeListener("accountData", onPolicy);
     window.removeEventListener("hasbreo:request", listener);
   };

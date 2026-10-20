@@ -38,7 +38,7 @@ class ChatEngine private constructor(private val app:Context){
   .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(app)).build()
  init{
   web.setBackgroundColor(android.graphics.Color.rgb(40,46,51))
-  web.settings.apply{javaScriptEnabled=true;domStorageEnabled=true;databaseEnabled=true;allowFileAccess=false;allowContentAccess=false;mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW;mediaPlaybackRequiresUserGesture=true;setSupportMultipleWindows(false);userAgentString=userAgentString+" HasbreoMessage/1.1.0"}
+  web.settings.apply{javaScriptEnabled=true;domStorageEnabled=true;databaseEnabled=true;allowFileAccess=false;allowContentAccess=false;mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW;mediaPlaybackRequiresUserGesture=false;setSupportMultipleWindows(false);userAgentString=userAgentString+" HasbreoMessage/1.2.0"}
   CookieManager.getInstance().setAcceptThirdPartyCookies(web,false)
   WebView.setWebContentsDebuggingEnabled(false)
   web.webViewClient=object:WebViewClient(){
@@ -117,6 +117,8 @@ class ChatEngine private constructor(private val app:Context){
     ok(prefs)
    }
    "logout"->{Notices.clearMessages(app);Vault(app).put("session",null);Vault(app).put("policy",null);Vault(app).put("approvedWatches",null);Vault(app).put("pendingReply",null);Vault(app).put("pendingReplies",null);ready=false;app.stopService(Intent(app,ChatService::class.java));WearBridge.clear(app);ok()}
+   "soundPreferences"->{val prefs=Preferences.get(app);for(key in listOf("callTone","messageTone")){val tone=data.optString(key,"mint");require(tone in setOf("mint","aurora","orbit","soft","none"));prefs.put(key,tone)};Vault(app).put("preferences",prefs.toString());Notices.channels(app);ok()}
+   "connectionNotificationSettings"->{activity?.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,app.packageName).putExtra(Settings.EXTRA_CHANNEL_ID,"connection"));ok()}
    "notificationPermission"->{activity?.requestNotifications();ok()}
    "haptic"->{if(Preferences.get(app).optBoolean("haptics"))app.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK));ok()}
    "batterySettings"->{activity?.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+app.packageName)));ok()}

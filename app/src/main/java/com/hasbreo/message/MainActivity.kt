@@ -95,6 +95,11 @@ class MainActivity:FragmentActivity(){
   BiometricPrompt(this,ContextCompat.getMainExecutor(this),object:BiometricPrompt.AuthenticationCallback(){override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){unlocked=true;container.removeView(overlay);lockOverlay=null}}).authenticate(BiometricPrompt.PromptInfo.Builder().setTitle("Unlock Hasbreo Message").setSubtitle("Your people, kept private").setAllowedAuthenticators(auth).build())
  }
  private fun acceptIntent(intent:Intent){
+  if(intent.getStringExtra("callAction")=="answer"){
+   val callId=intent.getStringExtra("callId");val account=intent.getStringExtra("account");intent.removeExtra("callAction")
+   val deadline=System.currentTimeMillis()+30000
+   val delivery=object:Runnable{override fun run(){if(System.currentTimeMillis()>deadline)return;if(!unlocked||!engine.ready){main.postDelayed(this,200);return};engine.event("hasbreo:callaction",JSONObject().put("action","answer").put("callId",callId).put("account",account))}};main.postDelayed(delivery,500)
+  }
   intent.getStringExtra("roomId")?.let{room->main.postDelayed({engine.open(room)},1000)}
   if(intent.action !in setOf(Intent.ACTION_SEND,Intent.ACTION_SEND_MULTIPLE))return
   val text=listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT),intent.getStringExtra(Intent.EXTRA_TEXT)).distinct().joinToString("\n")

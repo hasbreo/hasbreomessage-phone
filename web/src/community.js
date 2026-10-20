@@ -40,6 +40,9 @@ export function installCommunity(Messenger){
     await this.checkFiles([sound.content[FILE_KEY].id],true);if(this.fileAvailable(sound.content[FILE_KEY].id)===false)throw Error('This sound has been deleted from storage.');return this.client.sendEvent(roomId,'m.room.message',{...sound.content,msgtype:'m.audio','com.hasbreo.sound':true},transaction)};
    const task=send();if(transaction)this.soundTransactions.set(key,task);try{const result=await task;while(this.soundTransactions.size>200)this.soundTransactions.delete(this.soundTransactions.keys().next().value);return result}catch(e){this.soundTransactions.delete(key);throw e}
   },
+  async adminUser(userId,action,extra={}){return fileRequest(this.session,'/admin/user',{method:'POST',body:{userId,action,...extra}})},
+  async adminInvites(){return fileRequest(this.session,'/admin/invites')},
+  async revokeInvite(token){return fileRequest(this.session,'/admin/invite/revoke',{method:'POST',body:{token}})},
   quickReplies(){return this.client?.getAccountData('com.hasbreo.quick_replies')?.getContent()?.replies||['On my way','Give me a minute','Sounds good!','👍','❤️']},
   async setQuickReplies(replies){await this.client.setAccountData('com.hasbreo.quick_replies',{replies:replies.map(s=>s.trim().slice(0,160)).filter(Boolean).slice(0,12)});this.emit()}
  });

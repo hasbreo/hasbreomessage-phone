@@ -6,12 +6,12 @@ Your people, wherever you are. Android client for [message.hasbreo.com](https://
 
 ## Included
 
-This hybrid APK bundles the same React/Matrix Rust-crypto client as Hasbreo Chat 0.2.0 in a locally served Android WebView. Kotlin supplies native phone integration; it does not load a remotely hosted website for its interface.
+This hybrid APK bundles the same React/Matrix Rust-crypto client as Hasbreo Chat 0.4.0 in a locally served Android WebView. Kotlin supplies native phone integration; it does not load a remotely hosted website for its interface.
 
-- Existing username/password accounts, invitation signup and automatic password-unlocked encrypted history recovery.
-- Encrypted direct messages and groups, invitations, replies, reactions, edits, deletion, search, typing and read receipts.
+- Existing username/password accounts, registration-code signup and automatic password-unlocked encrypted history recovery.
+- Encrypted direct messages and groups, automatic local joining, replies, reactions, edits, deletion, search, typing and read receipts.
 - Short handles, online/away/last-seen status, muting, blocking and administrator storage/invite controls.
-- Default 25 GB file allowance; server-enforced reservations, encrypted 8 MiB uploads, progress and cancellation. Requires server 0.2.0 or later.
+- Default 25 GB file allowance; server-enforced reservations, encrypted 8 MiB uploads, progress and cancellation. New features require server 0.4.0 or later.
 - Android sharing, file/photo picker, camera capture and voice notes up to three minutes. Audio/video playback in the chat.
 - Native downloads decrypt incrementally into Downloads. Share-sheet files are read in bounded slices; multi-GB files are not buffered whole. Some non-seekable cloud providers require using Attach instead.
 - Notifications with optional previews, reply and mark-read actions. Notification replies have an encrypted, account-bound outbox and stable transaction IDs.
@@ -66,7 +66,7 @@ The download page reads GitHub releases automatically, including older versions 
 
 Project: MIT. Matrix SDK/Rust crypto and AndroidX: Apache-2.0; React/Vite: MIT; Lucide: ISC. Google Play services uses Google's SDK terms. Preserve `THIRD_PARTY_NOTICES.txt` and dependency notices.
 
-## Version 1.1.0
+## Version 1.2.0
 
 
 - Drag-and-drop encrypted uploads; browser camera capture and reviewable voice notes.
@@ -78,6 +78,6 @@ Project: MIT. Matrix SDK/Rust crypto and AndroidX: Apache-2.0; React/Vite: MIT; 
 - One notification per chat, 30-second chat alert cooldown and five-second global alert gap.
 - More expressive sage/lavender/warm accent styling, starred chats and encrypted browser drafts.
 
-Install the 0.3.0 server update for the user catalogue, auto-joining, file availability and sorting. Reliable calls across mobile/restrictive networks need an independently reachable TURN relay; Cloudflare Tunnel alone does not provide UDP/TURN. Calls are one-to-one, not group calls. Resolution adapts to cameras and connection quality.
+Install the 0.4.0 server update for the user catalogue, auto-joining, file availability and sorting. Reliable calls across mobile/restrictive networks need an independently reachable TURN relay; Cloudflare Tunnel alone does not provide UDP/TURN. Calls are one-to-one, not group calls. Resolution adapts to cameras and connection quality.
 
 Automated unit, DOM and real Synapse tests are included. Physical camera/mic, background Android calling, phone/watch transport, visual browser checks and real-network call quality remain hardware verification items.
