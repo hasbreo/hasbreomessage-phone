@@ -28,6 +28,7 @@ class ChatEngine private constructor(private val app:Context){
  @Volatile var visible=false
  var activeRoom:String?=null
  @Volatile var ready=false
+ @Volatile var callMedia=false
  private val pending=mutableMapOf<String,(String?)->Unit>()
  private val shared=java.util.concurrent.ConcurrentHashMap<String,Pair<Uri,String>>()
  private val executor=Executors.newFixedThreadPool(2)
@@ -37,7 +38,7 @@ class ChatEngine private constructor(private val app:Context){
   .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(app)).build()
  init{
   web.setBackgroundColor(android.graphics.Color.rgb(40,46,51))
-  web.settings.apply{javaScriptEnabled=true;domStorageEnabled=true;databaseEnabled=true;allowFileAccess=false;allowContentAccess=false;mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW;mediaPlaybackRequiresUserGesture=true;setSupportMultipleWindows(false);userAgentString=userAgentString+" HasbreoMessage/1.0.0"}
+  web.settings.apply{javaScriptEnabled=true;domStorageEnabled=true;databaseEnabled=true;allowFileAccess=false;allowContentAccess=false;mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW;mediaPlaybackRequiresUserGesture=true;setSupportMultipleWindows(false);userAgentString=userAgentString+" HasbreoMessage/1.1.0"}
   CookieManager.getInstance().setAcceptThirdPartyCookies(web,false)
   WebView.setWebContentsDebuggingEnabled(false)
   web.webViewClient=object:WebViewClient(){
@@ -106,11 +107,13 @@ class ChatEngine private constructor(private val app:Context){
    "engineReady"->{ready=true;ok();event("hasbreo:visibility",JSONObject().put("visible",visible));PendingReplies.flush(app)}
    "screen"->{activeRoom=data.optString("roomId").takeIf{it.isNotBlank()&&it!="null"};ok()}
    "policy"->{Vault(app).put("policy",data.toString());ok()}
+   "callNotice"->{Notices.call(app,data);ok()}
+   "callMedia"->{val active=data.optBoolean("active");if(active&&!callMedia&&activity==null)throw IllegalStateException("Open the app to start call audio.");callMedia=active;ChatService.media(app,active,data.optBoolean("video"));ok()}
    "notification"->{WearBridge.changed(app,data.optString("roomId"));Notices.message(app,data);ok()}
    "testNotification"->{Notices.message(app,JSONObject().put("eventId",UUID.randomUUID()).put("title","You’re all set ✨").put("body","Hasbreo notifications are working."),true);ok()}
    "preferences"->ok(Preferences.get(app))
-   "setPreference"->{val key=data.getString("key");val value=data.getBoolean("value");val prefs=Preferences.set(app,key,value)
-    if(key=="connected"){if(value){if(activity==null)throw IllegalStateException("Open Hasbreo to enable Connected mode.");ChatService.start(app)}else app.stopService(Intent(app,ChatService::class.java))}
+   "setPreference"->{val key=data.getString("key");val value=data.getBoolean("value");if(key=="connected"&&!value&&callMedia)throw IllegalStateException("Finish your call before disabling Connected mode.");val prefs=Preferences.set(app,key,value)
+    if(key=="connected"){if(value){if(activity==null)throw IllegalStateException("Open Hasbreo to enable Connected mode.");ChatService.start(app)}else {if(callMedia)throw IllegalStateException("Finish your call before disabling Connected mode.");app.stopService(Intent(app,ChatService::class.java))}}
     ok(prefs)
    }
    "logout"->{Notices.clearMessages(app);Vault(app).put("session",null);Vault(app).put("policy",null);Vault(app).put("approvedWatches",null);Vault(app).put("pendingReply",null);Vault(app).put("pendingReplies",null);ready=false;app.stopService(Intent(app,ChatService::class.java));WearBridge.clear(app);ok()}

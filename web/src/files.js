@@ -13,7 +13,7 @@ export function chunkParameters(m,index){
 }
 export async function fileRequest(session,path,{body,method='GET',signal,binary=false}={}){
   const response=await fetch(session.baseUrl+'/hasbreo/files'+path,{method,headers:{Authorization:`Bearer ${session.accessToken}`,...(body!==undefined&&!binary?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:binary?body:JSON.stringify(body)}:{}),signal,credentials:'omit',redirect:'error'});
-  if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'File storage is unavailable. Update the server and try again.');}
+  if(!response.ok){const data=await response.json().catch(()=>({}));const error=new Error(data.error||'File storage is unavailable. Update the server and try again.');error.httpStatus=response.status;throw error;}
   return binary&&method==='GET'?response.arrayBuffer():response.json();
 }
 export async function uploadFile(session,file,{signal,onProgress=()=>{}}={}){

@@ -17,10 +17,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 class ChatService:Service(){
  private val running=AtomicBoolean(false);private val executor=Executors.newSingleThreadExecutor()
- override fun onCreate(){super.onCreate();Notices.channels(this);ServiceCompat.startForeground(this,Notices.CONNECTED,Notices.connection(this),if(Build.VERSION.SDK_INT>=34)ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING else 0);ChatEngine.obtain(this);running.set(true);executor.execute{poll()}}
- override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int=START_STICKY
+ private var mediaActive=false
+ private var mediaVideo=false
+ override fun onCreate(){instance=this;super.onCreate();Notices.channels(this);ServiceCompat.startForeground(this,Notices.CONNECTED,Notices.connection(this),if(Build.VERSION.SDK_INT>=34)ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING else 0);ChatEngine.obtain(this);running.set(true);executor.execute{poll()}}
+ override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
+  if(intent?.hasExtra("callActive")==true){mediaActive=intent.getBooleanExtra("callActive",false);mediaVideo=intent.getBooleanExtra("callVideo",false);val type=if(Build.VERSION.SDK_INT>=34)ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING or (if(mediaActive)ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0) or (if(mediaActive&&mediaVideo)ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)else if(Build.VERSION.SDK_INT>=30&&mediaActive)ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or (if(mediaVideo)ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)else 0
+   ServiceCompat.startForeground(this,Notices.CONNECTED,Notices.connection(this,mediaActive),type)
+   val audio=getSystemService(android.media.AudioManager::class.java);audio.mode=if(mediaActive)android.media.AudioManager.MODE_IN_COMMUNICATION else android.media.AudioManager.MODE_NORMAL
+   if(!mediaActive&&!Preferences.get(this).optBoolean("connected"))stopSelf()
+  };return START_STICKY
+ }
  override fun onBind(intent:Intent?):IBinder?=null
- override fun onDestroy(){running.set(false);executor.shutdownNow();super.onDestroy()}
+ override fun onDestroy(){instance=null;getSystemService(android.media.AudioManager::class.java).mode=android.media.AudioManager.MODE_NORMAL;running.set(false);executor.shutdownNow();super.onDestroy()}
  private fun poll(){while(running.get())try{
   val v=Vault(this);val s=v.get("session")?.let{JSONObject(it)};if(s==null){Thread.sleep(3000);continue}
   val base=s.getString("baseUrl");if(!base.startsWith("https://")){Thread.sleep(3000);continue}
@@ -43,6 +51,8 @@ class ChatService:Service(){
    }
   };v.put(cursorKey,data.getString("next_batch"))
  }catch(_:InterruptedException){return}catch(_:Exception){try{Thread.sleep(5000)}catch(_:InterruptedException){return}}}
- companion object{fun start(context:Context){ContextCompat.startForegroundService(context,Intent(context,ChatService::class.java))}}
+ companion object{var instance:ChatService?=null
+ fun media(context:Context,active:Boolean,video:Boolean){if(!active&&instance==null)return;val intent=Intent(context,ChatService::class.java).putExtra("callActive",active).putExtra("callVideo",video);ContextCompat.startForegroundService(context,intent)}
+ fun start(context:Context){ContextCompat.startForegroundService(context,Intent(context,ChatService::class.java))}}
 }
 class BootReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){if(intent.action==Intent.ACTION_BOOT_COMPLETED&&Preferences.get(context).optBoolean("connected")&&Vault(context).get("session")!=null)try{ChatService.start(context)}catch(_:Exception){Notices.status(context,"Hasbreo is ready","Open the app to reconnect your chats and watch.")}}}

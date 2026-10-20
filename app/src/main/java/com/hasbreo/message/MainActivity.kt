@@ -38,6 +38,8 @@ import java.util.UUID
 class MainActivity:FragmentActivity(){
  private lateinit var container:FrameLayout
  private lateinit var engine:ChatEngine
+ private var mediaRequest:android.webkit.PermissionRequest?=null
+ private val mediaPermissions=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){results->val request=mediaRequest;mediaRequest=null;if(request!=null){if(results.values.all{it}&&::engine.isInitialized&&engine.visible&&unlocked)request.grant(request.resources)else request.deny()}}
  private var chooser:ValueCallback<Array<Uri>>?=null
  private var captureReply:((JSONObject?,String?)->Unit)?=null
  private var cameraFile:File?=null
@@ -51,13 +53,21 @@ class MainActivity:FragmentActivity(){
  private val files=registerForActivityResult(ActivityResultContracts.StartActivityForResult()){result->chooser?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode,result.data));chooser=null}
  private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){}
  private val microphone=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted)beginVoice()else finishCapture(null,"Microphone permission was not granted.")}
+ private val captureCameraPermission=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted)launchCamera()else finishCapture(null,"Camera permission was not granted.")}
  private val camera=registerForActivityResult(ActivityResultContracts.StartActivityForResult()){result->val file=cameraFile;cameraFile=null;if(result.resultCode==RESULT_OK&&file!=null){val uri=FileProvider.getUriForFile(this,"$packageName.files",file);finishCapture(engine.share(uri,"image/jpeg"),null)}else{file?.delete();finishCapture(null,null)}}
  val chrome=object:WebChromeClient(){
   override fun onShowFileChooser(view:WebView,filePathCallback:ValueCallback<Array<Uri>>,params:FileChooserParams):Boolean{
    chooser?.onReceiveValue(null);chooser=filePathCallback
    try{files.launch(params.createIntent().apply{addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}catch(_:Exception){chooser?.onReceiveValue(null);chooser=null;Notices.status(this@MainActivity,"Choose a file","Install a file picker or photo app and try again.")};return true
   }
-  override fun onPermissionRequest(request:android.webkit.PermissionRequest){request.deny()}
+  override fun onPermissionRequest(request:android.webkit.PermissionRequest){runOnUiThread{
+   val allowed=setOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE,android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+   if(request.origin.toString().trimEnd('/')!="https://appassets.androidplatform.net"||request.resources.any{it !in allowed}||!engine.visible||!unlocked){request.deny();return@runOnUiThread}
+   mediaRequest?.deny();mediaRequest=request
+   val needed=request.resources.map{if(it==android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)Manifest.permission.CAMERA else Manifest.permission.RECORD_AUDIO}.filter{ContextCompat.checkSelfPermission(this@MainActivity,it)!=PackageManager.PERMISSION_GRANTED}.distinct()
+   if(needed.isEmpty()){mediaRequest=null;request.grant(request.resources)}else mediaPermissions.launch(needed.toTypedArray())
+  }}
+  override fun onPermissionRequestCanceled(request:android.webkit.PermissionRequest){if(mediaRequest===request)mediaRequest=null}
  }
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);WindowCompat.setDecorFitsSystemWindows(window,false)
   container=FrameLayout(this).apply{setBackgroundColor(Color.rgb(40,46,51))};setContentView(container)
@@ -72,7 +82,7 @@ class MainActivity:FragmentActivity(){
  override fun onResume(){super.onResume();if(!::engine.isInitialized)return;engine.attach(this,container);if(!unlocked||System.currentTimeMillis()-leftAt>30000)authenticate();else engine.visible=true;PendingReplies.flush(this);if(Preferences.get(this).optBoolean("connected")&&Vault(this).get("session")!=null)try{ChatService.start(this)}catch(_:Exception){}}
  override fun onPause(){super.onPause();if(::engine.isInitialized){engine.visible=false;engine.event("hasbreo:visibility",JSONObject().put("visible",false))};leftAt=System.currentTimeMillis()}
  override fun onStop(){super.onStop();if(recorder!=null)stopVoice(false);if(::engine.isInitialized)engine.detach(this)}
- override fun onDestroy(){chooser?.onReceiveValue(null);chooser=null;if(::engine.isInitialized)engine.detach(this);super.onDestroy()}
+ override fun onDestroy(){mediaRequest?.deny();mediaRequest=null;chooser?.onReceiveValue(null);chooser=null;if(::engine.isInitialized)engine.detach(this);super.onDestroy()}
  fun recreateEngine(){ChatEngine.reset();recreate()}
  fun requestNotifications(){if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)notifications.launch(Manifest.permission.POST_NOTIFICATIONS)}
  private fun authenticate(){
@@ -97,9 +107,10 @@ class MainActivity:FragmentActivity(){
   if(type=="camera"){
    val folder=File(cacheDir,"shared").apply{mkdirs()};val file=File(folder,"photo-${UUID.randomUUID()}.jpg");cameraFile=file
    val uri=FileProvider.getUriForFile(this,"$packageName.files",file)
-   try{camera.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT,uri).addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION))}catch(_:Exception){finishCapture(null,"No camera app was found.")}
+   if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)launchCamera()else captureCameraPermission.launch(Manifest.permission.CAMERA)
   }else if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)beginVoice()else microphone.launch(Manifest.permission.RECORD_AUDIO)
  }
+ private fun launchCamera(){val file=cameraFile?:return;val uri=FileProvider.getUriForFile(this,"$packageName.files",file);try{camera.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT,uri).addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION))}catch(_:Exception){finishCapture(null,"No camera app was found.")}}
  @Suppress("DEPRECATION") private fun beginVoice(){
   try{
    val folder=File(cacheDir,"shared").apply{mkdirs()};val file=File(folder,"voice-${System.currentTimeMillis()}.m4a");recordingFile=file

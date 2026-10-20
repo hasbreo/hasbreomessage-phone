@@ -19,7 +19,7 @@ This hybrid APK bundles the same React/Matrix Rust-crypto client as Hasbreo Chat
 - Fingerprint/device-credential lock, haptics, starred chats and encrypted persistent drafts.
 - Explicit watch approval and revocation. The watch never receives the password, access token or Matrix message keys.
 
-No voice/video calls, standalone watch login, FCM service, ads or analytics SDK are included. Connected mode shows an ongoing notification and uses battery. Doze, manufacturer restrictions, force-stop and lost connectivity can delay delivery. Reopen after a force-stop. This is a foreground connection, not guaranteed push delivery.
+One-to-one voice/video calls are included; reliable cross-network calling needs TURN relay setup on the server. Standalone watch login, group calls and FCM are not included. Connected mode shows an ongoing notification and uses battery. Doze, manufacturer restrictions, force-stop and lost connectivity can delay delivery. Reopen after a force-stop. This is a foreground connection, not guaranteed push delivery.
 
 ## Install
 
@@ -65,3 +65,19 @@ The download page reads GitHub releases automatically, including older versions 
 ## Licences
 
 Project: MIT. Matrix SDK/Rust crypto and AndroidX: Apache-2.0; React/Vite: MIT; Lucide: ISC. Google Play services uses Google's SDK terms. Preserve `THIRD_PARTY_NOTICES.txt` and dependency notices.
+
+## Version 1.1.0
+
+
+- Drag-and-drop encrypted uploads; browser camera capture and reviewable voice notes.
+- Full local-server user catalogue, automatic chat joining and private nicknames synced across your devices.
+- Searchable emoji library, skin tones, recent/favourite emojis and editable quick replies.
+- An encrypted, account-owned soundboard: upload, preview, send in chat or mix into one-to-one voice/video calls.
+- One-to-one WebRTC voice/video calls targeting up to 1920 × 1080 at 30 fps, measured stream dimensions, mic/camera controls, camera switching and desktop screen sharing.
+- Date/size storage sorting across all pages and red/dim deleted attachments, including cached previews.
+- One notification per chat, 30-second chat alert cooldown and five-second global alert gap.
+- More expressive sage/lavender/warm accent styling, starred chats and encrypted browser drafts.
+
+Install the 0.3.0 server update for the user catalogue, auto-joining, file availability and sorting. Reliable calls across mobile/restrictive networks need an independently reachable TURN relay; Cloudflare Tunnel alone does not provide UDP/TURN. Calls are one-to-one, not group calls. Resolution adapts to cameras and connection quality.
+
+Automated unit, DOM and real Synapse tests are included. Physical camera/mic, background Android calling, phone/watch transport, visual browser checks and real-network call quality remain hardware verification items.

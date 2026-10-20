@@ -1573,3 +1573,6 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
+
+
+@emoji-mart/data 1.2.1 — MIT. Copyright (c) Missive. Bundled Unicode emoji metadata; native emoji artwork is supplied by the operating system.
