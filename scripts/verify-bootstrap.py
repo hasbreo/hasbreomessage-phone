@@ -1,11 +1,15 @@
 """Unpack the signed first-release artifact and verify its public identity."""
-import gzip,hashlib,json,os,pathlib,re,subprocess
+import io,gzip,hashlib,json,os,pathlib,re,subprocess
 root=pathlib.Path(__file__).resolve().parents[1];m=json.loads((root/'release/manifest.json').read_text())
 assert m['platform'] in ['phone','watch']
 assert re.fullmatch(r'\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?',m['version'])
 assert re.fullmatch(r'[a-f0-9]{40}',m['sourceCommit'])
 assert m['filename']==f"HasbreoMessage-{m['platform'].capitalize()}-v{m['version']}.apk"
-with gzip.open(root/'release/bootstrap.apk.gz','rb') as stream: data=stream.read(50*1024*1024+1)
+parts=sorted((root/'release').glob('bootstrap.apk.gz.part-*'))
+assert parts and [p.name for p in parts]==[f'bootstrap.apk.gz.part-{i:03d}' for i in range(len(parts))]
+compressed=b''.join(p.read_bytes() for p in parts)
+assert len(compressed)<50*1024*1024
+with gzip.GzipFile(fileobj=io.BytesIO(compressed),mode='rb') as stream: data=stream.read(50*1024*1024+1)
 assert len(data)==m['size'] and len(data)<50*1024*1024
 assert hashlib.sha256(data).hexdigest()==m['sha256']
 apk=root/m['filename'];apk.write_bytes(data)
